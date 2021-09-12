@@ -1,0 +1,63 @@
+{
+  "/nextjs/*": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+
+  "/catalog/**/*": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+  "/account": {
+    "target": "http://localhost:4203",
+    "secure": false
+  },
+  "/c/**/*": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+  "/category/*": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+  "/p/*": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+  "/s/*": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+  "/catalog-assets": {
+    "target": "http://localhost:4201",
+    "secure": false
+  },
+  "/checkout": {
+    "target": "http://localhost:4202",
+    "secure": false
+  },
+  "/cnc-assets": {
+    "target": "http://localhost:4202",
+    "secure": false
+  },
+  "/signin": {
+    "target": "http://localhost:4203",
+    "secure": false
+  },
+  "/register": {
+    "target": "http://localhost:4203",
+    "secure": false
+  },
+  "/account-assets": {
+    "target": "http://localhost:4203",
+    "secure": false
+  },
+  "/store-locator": {
+    "target": "http://localhost:4204",
+    "secure": false
+  },
+  "/store-locator-assets": {
+    "target": "http://localhost:4204",
+    "secure": false
+  }
+}

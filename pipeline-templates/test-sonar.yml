@@ -1,0 +1,81 @@
+parameters:
+  - name: yarnCacheFolder
+    type: string
+  - name: appName
+    type: string
+  - name: appFolderPath
+    type: string
+  - name: sonarCloudOrganisation
+    type: string
+    default: 'genesis'
+  - name: skipSonarCloudAnalysis
+    type: boolean
+    default: false
+  - name: nodeOptions
+    type: string
+    default: '--max-old-space-size=2048'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '12.x'
+      checkLatest: true
+    displayName: 'Node Installation'
+
+  - task: Cache@2
+    inputs:
+      key: 'yarn | "node_modules_folder" | "$(Agent.OS)" | yarn.lock'
+      restoreKeys: |
+        yarn | "node_modules_folder" | "$(Agent.OS)"
+      path: ${{ parameters.yarnCacheFolder }}
+    displayName: Cache Yarn packages
+
+  - script: |
+      NODE_ENV=production NODE_OPTIONS=${{ parameters.nodeOptions }}
+      yarn --frozen-lockfile
+    displayName: 'Install Dependencies'
+
+  - script: |
+      NODE_ENV=production NODE_OPTIONS=${{ parameters.nodeOptions }}
+      yarn nx run ${{ parameters.appName }}:test --coverage
+    displayName: 'Unit Test'
+
+  - script: |
+      NODE_ENV=production NODE_OPTIONS=${{ parameters.nodeOptions }}
+      yarn nx run ${{ parameters.appName }}:lint
+    displayName: 'Run Lint'
+
+  - ${{ if eq(parameters.skipSonarCloudAnalysis, false) }}:
+      - task: SonarCloudPrepare@1
+        inputs:
+          SonarCloud: '${{ parameters.sonarCloudOrganisation }}'
+          organization: '${{ parameters.sonarCloudOrganisation }}'
+          scannerMode: 'CLI'
+          configMode: 'file'
+          configFile: 'apps/${{ parameters.appFolderPath }}/sonar-project.properties'
+        displayName: 'SonarCloud preparation'
+
+      - task: SonarCloudAnalyze@1
+        displayName: 'SonarCloud analysis'
+
+      - task: SonarCloudPublish@1
+        inputs:
+          pollingTimeoutSec: '300'
+        displayName: 'SonarCloud publishing'
+
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '$(System.DefaultWorkingDirectory)/coverage/**/*.xml'
+      mergeTestResults: true
+      failTaskOnFailedTests: false
+      testRunTitle: 'Publish test results'
+    displayName: 'Publish Test Result'
+
+  - task: PublishCodeCoverageResults@1
+    inputs:
+      codeCoverageTool: 'Cobertura'
+      summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage/**/*.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/coverage'
+      failIfCoverageEmpty: false
+    displayName: 'Publish Coverage'

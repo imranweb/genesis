@@ -1,0 +1,15 @@
+parameters:
+  - name: artifactoryRegistryServiceConnection
+    type: string
+    default: 'genesis-artifactory'
+  - name: imageVersion
+    type: string
+
+steps:
+  - task: ArtifactoryXrayScan@1
+    displayName: 'Launch an Artifactory Xray scan'
+    inputs:
+      artifactoryService: '${{ parameters.artifactoryRegistryServiceConnection }}'
+      buildName: '$(Build.DefinitionName)'
+      buildNumber: '${{ parameters.imageVersion }}'
+      allowFailBuild: false

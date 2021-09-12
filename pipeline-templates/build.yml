@@ -1,0 +1,136 @@
+parameters:
+  - name: yarnCacheFolder
+    type: string
+  - name: appName
+    type: string
+  - name: appFolderPath
+    type: string
+  - name: dockerRegistryServiceConnection
+    type: string
+    default: 'genesis-artifactory-docker'
+  - name: artifactoryRegistryServiceConnection
+    type: string
+    default: 'genesis-artifactory'
+  - name: registryUrl
+    type: string
+    default: 'genesis.jfrog.io'
+  - name: dockerRootRepository
+    type: string
+    default: 'digitalfactory-docker'
+  - name: dockerRepository
+    type: string
+  - name: nodeOptions
+    type: string
+    default: '--max-old-space-size=2048'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '12.x'
+      checkLatest: true
+    displayName: 'Node Installation'
+
+  - task: Cache@2
+    inputs:
+      key: 'yarn | "node_modules_folder" | "$(Agent.OS)" | yarn.lock'
+      restoreKeys: |
+        yarn | "node_modules_folder" | "$(Agent.OS)"
+      path: ${{ parameters.yarnCacheFolder }}
+    displayName: 'Cache Yarn packages'
+
+  - script: |
+      NODE_ENV=production NODE_OPTIONS=${{ parameters.nodeOptions }}
+      yarn --frozen-lockfile
+    displayName: 'Install Dependencies'
+
+  - script: |
+      NODE_ENV=production NODE_OPTIONS=${{ parameters.nodeOptions }} yarn nx build ${{ parameters.appName }} --prod
+      if [ $? -ne 0 ]
+      then
+        exit 1
+      fi
+
+      if [[ ${{ parameters.appFolderPath }} == *"genesis"* ]]; then
+        cp yarn.lock dist/apps/${{ parameters.appFolderPath }}/
+      fi
+
+      if [ -f "apps/${{ parameters.appFolderPath }}/next.config.js" ]; then
+          cp apps/${{ parameters.appFolderPath }}/next.config.js dist/apps/${{ parameters.appFolderPath }}/
+      fi
+    displayName: 'Generate a production ready build'
+
+  # Use the docker commit date and time suffixed by the commit id as a version
+  # a flag -dirty is added if there are a local modification
+  #
+  # YYYYmm.dd.HHMMSS-commit(12)[-dirty]
+  - bash: |
+      echo "##vso[task.setvariable variable=imageVersion;isOutput=true]$(echo $(git show -s --date='format-local:%Y.%m.%d-%H%M%S' --format="%cd")-$(git rev-parse --short=12 HEAD)$(git diff --quiet || echo '-dirty'))"
+    displayName: 'Compute version'
+    name: version
+
+  - bash: |
+      echo "version will be : $(version.imageVersion)"
+    displayName: 'Display version'
+
+  - task: Docker@2
+    displayName: 'Login to Container Registry for docker'
+    inputs:
+      command: 'login'
+      containerRegistry: ${{ parameters.dockerRegistryServiceConnection }}
+
+  - script: |
+      docker pull ${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:latest
+    displayName: 'Pull latest image to use for layer caching'
+    continueOnError: true # for first build, no cache
+
+  - task: Docker@2
+    inputs:
+      command: 'build'
+      Dockerfile: '$(System.DefaultWorkingDirectory)/apps/${{ parameters.appFolderPath }}/Dockerfile'
+      buildContext: '$(System.DefaultWorkingDirectory)/dist/apps/${{ parameters.appFolderPath }}'
+      arguments:
+        '-t ${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:$(version.imageVersion)
+        -t ${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:latest
+        --cache-from=${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:latest'
+      addPipelineData: false
+    displayName: 'Docker image build'
+
+  - task: ArtifactoryDocker@1
+    displayName: 'Push versioned docker image to Artifactory'
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    inputs:
+      command: 'push'
+      artifactoryService: '${{ parameters.artifactoryRegistryServiceConnection }}'
+      targetRepo: '${{ parameters.dockerRootRepository }}'
+      imageName: '${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:$(version.imageVersion)'
+      collectBuildInfo: true
+      buildName: '$(Build.DefinitionName)'
+      buildNumber: '$(version.imageVersion)'
+      includeEnvVars: true
+
+  - task: ArtifactoryDocker@1
+    displayName: '... push latest docker tag to Artifactory'
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    inputs:
+      command: 'push'
+      artifactoryService: '${{ parameters.artifactoryRegistryServiceConnection }}'
+      targetRepo: '${{ parameters.dockerRootRepository }}'
+      imageName: '${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:latest'
+      collectBuildInfo: true
+      buildName: '$(Build.DefinitionName)'
+      buildNumber: '$(version.imageVersion)'
+      includeEnvVars: true
+
+  - task: ArtifactoryPublishBuildInfo@1
+    displayName: 'Publish build information to Artifactory'
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    inputs:
+      artifactoryService: '${{ parameters.artifactoryRegistryServiceConnection }}'
+      buildName: '$(Build.DefinitionName)'
+      buildNumber: '$(version.imageVersion)'
+
+  - task: PublishPipelineArtifact@1
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    inputs:
+      targetPath: '$(System.DefaultWorkingDirectory)/apps/${{ parameters.appFolderPath }}/k8s'
+      artifactName: 'k8s_manifest'

@@ -1,0 +1,56 @@
+parameters:
+  - name: environment
+    type: string
+  - name: registryUrl
+    type: string
+    default: 'genesis.jfrog.io'
+  - name: dockerRootRepository
+    type: string
+    default: 'digitalfactory-docker'
+  - name: dockerRepository
+    type: string
+  - name: imageVersion
+    type: string
+  - name: branchName
+    type: string
+    default: '$(Build.SourceBranchName)'
+
+steps:
+  - bash: |
+      echo "imageVersion to deploy is: ${{ parameters.imageVersion }}"
+    displayName: 'Display imageVersion'
+
+  - bash: |
+      echo "branchName to deploy is: ${{parameters.branchName}}"
+    displayName: 'Display branchName'
+
+  - task: DownloadPipelineArtifact@2
+    displayName: 'Download Artifacts'
+    inputs:
+      artifact: k8s_manifest
+
+  - task: qetza.replacetokens.replacetokens-task.replacetokens@3
+    displayName: Replace variables
+    inputs:
+      targetFiles: $(Pipeline.Workspace)/**/*.yml
+      tokenPrefix: __
+      tokenSuffix: __
+
+  - task: KubernetesManifest@0
+    name: bake
+    displayName: Bake K8s manifests from kustomization path
+    inputs:
+      action: bake
+      renderType: kustomize
+      kustomizationPath: '$(Pipeline.Workspace)/k8s_manifest/overlays/${{ parameters.environment }}'
+
+  # the job will wait until all intances are update, hence using a 5 minute timeout
+  - task: KubernetesManifest@0
+    displayName: 'Deploy to ${{ parameters.environment }} environment'
+    inputs:
+      action: 'deploy'
+      kubernetesServiceConnection: 'genesis-${{ parameters.environment }}-default'
+      namespace: 'default'
+      manifests: $(bake.manifestsBundle)
+      containers: '${{ parameters.registryUrl }}/${{ parameters.dockerRootRepository }}/${{ parameters.dockerRepository }}:${{ parameters.imageVersion }}'
+      rolloutStatusTimeout: '300'

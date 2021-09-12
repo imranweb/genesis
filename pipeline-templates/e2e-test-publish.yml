@@ -1,0 +1,60 @@
+parameters:
+  - name: yarnCacheFolder
+    type: string
+  - name: appName
+    type: string
+  - name: specFolder
+    type: string
+  - name: xrayClientId
+    type: string
+  - name: xrayClientSecret
+    type: string
+  - name: xrayTestPlan
+    type: string
+  - name: environment
+    type: string
+  - name: baseUrl
+    type: string
+  - name: tags
+    type: string
+    default: '@smoke'
+
+jobs:
+  - job: Cypress_e2e_tests
+    timeoutInMinutes: 10
+    strategy:
+      parallel: '1'
+    steps:
+      - task: NodeTool@0
+        inputs:
+          versionSpec: '12.x'
+          checkLatest: true
+        displayName: 'Node Installation'
+
+      - task: Cache@2
+        inputs:
+          key: yarn | $(Agent.OS) | yarn.lock
+          restoreKeys: yarn | $(Agent.OS) | yarn.lock
+          path: ${{ parameters.yarnCacheFolder }}
+        displayName: Cache Yarn packages
+
+      - task: Cache@2
+        inputs:
+          key: cypress | $(Agent.OS) | yarn.lock
+          path: /home/vsts/.cache/Cypress
+          restoreKeys: cypress | $(Agent.OS) | yarn.lock
+        displayName: Cache Cypress binary
+
+      # Install Node dependencies
+      - script: yarn install
+        displayName: 'Install NPM dependencies'
+
+      - script: |
+          yarn e2e ${{ parameters.appName }}-e2e \
+          --baseUrl=${{ parameters.baseUrl }} \
+          --devServerTarget="" \
+          --env.TAGS=${{ parameters.tags }}
+        displayName: 'Run Cypress tests'
+        env:
+          # avoid warnings about terminal
+          TERM: xterm
